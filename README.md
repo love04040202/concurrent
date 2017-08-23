@@ -97,7 +97,7 @@
 		
 		
   
-  #Java多线程（七）之同步器基础：AQS框架深入分析  
+# Java多线程（七）之同步器基础：AQS框架深入分析  
   
   `
   	一、什么是同步器
@@ -171,4 +171,83 @@
 	AQS留给实现者的方法主要有5个方法，其中tryAcquire,tryRelease和isHeldExclusively三个方法为需要独占形式获取的synchronizer实现的，比如线程		独占ReetranLock的Sync，而tryAcquireShared和tryReleasedShared为需要共享形式获取的synchronizer实现。
 
 		ReentrantLock内部Sync类实现的是tryAcquire,tryRelease, isHeldExclusively三个方法(因为获取锁的公平性问题，tryAcquire由继承该		Sync类的内部类FairSync和NonfairSync实现)Semaphore内部类Sync则实现了tryAcquireShared和tryReleasedShared(与CountDownLatch相似，因为公		平性问题，tryAcquireShared由其内部类FairSync和NonfairSync实现)。CountDownLatch内部类Sync实现了tryAcquireShared和			tryReleasedShared。FutureTask内部类Sync也实现了tryAcquireShared和tryReleasedShared。
-  `
+  `  
+  
+# Java 8：StampedLock 支持读锁 写锁 乐观锁  
+  
+	public class Point {
+	    // 成员变量
+	    private double x, y;
+
+	    // 锁实例
+	    private final StampedLock sl = new StampedLock();
+
+	    // 排它锁-写锁（writeLock）
+	    void move(double deltaX, double deltaY) {
+		long stamp = sl.writeLock();
+		try {
+		    x += deltaX;
+		    y += deltaY;
+		} finally {
+		    sl.unlockWrite(stamp);
+		}
+	    }
+
+	    // 乐观读锁（tryOptimisticRead）
+	    double distanceFromOrigin() {
+
+		// 尝试获取乐观读锁（1）
+		long stamp = sl.tryOptimisticRead();
+		// 将全部变量拷贝到方法体栈内（2）
+		double currentX = x, currentY = y;
+
+		// 检查在（1）获取到读锁票据后，锁有没被其他写线程排它性抢占（3）
+		if (!sl.validate(stamp)) {
+		    // 如果被抢占则获取一个共享读锁（悲观获取）（4）
+		    stamp = sl.readLock();
+		    try {
+			// 将全部变量拷贝到方法体栈内（5）
+			currentX = x;
+			currentY = y;
+
+		    } finally {
+			// 释放共享读锁（6）
+			sl.unlockRead(stamp);
+		    }
+		}
+		// 返回计算结果（7）
+		return Math.sqrt(currentX * currentX + currentY * currentY);
+	    }
+
+	    // 使用悲观锁获取读锁，并尝试转换为写锁
+	    void moveIfAtOrigin(double newX, double newY) {
+		// 这里可以使用乐观读锁替换（1）
+		long stamp = sl.readLock();
+		try {
+		    // 如果当前点在原点则移动（2）
+		    while (x == 0.0 && y == 0.0) {
+			// 尝试将获取的读锁升级为写锁（3）
+			long ws = sl.tryConvertToWriteLock(stamp);
+			// 升级成功，则更新票据，并设置坐标值，然后退出循环（4）
+			if (ws != 0L) {
+			    stamp = ws;
+			    x = newX;
+			    y = newY;
+			    break;
+			} else {
+			    // 读锁升级写锁失败则释放读锁，显示获取独占写锁，然后循环重试（5）
+			    sl.unlockRead(stamp);
+			    stamp = sl.writeLock();
+			}
+		    }
+		} finally {
+		    // 释放锁（6）
+		    sl.unlock(stamp);
+		}
+	    }
+	}
+ 
+	   
+	   
+	   
+	   
